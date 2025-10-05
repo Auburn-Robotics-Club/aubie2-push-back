@@ -1,0 +1,19 @@
+[package]
+name = "dory"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.v5]
+upload-strategy = "differential"
+slot = 1
+icon = "cool-x"
+
+[dependencies]
+aubie2 = { workspace = true }
+vexide = { workspace = true, features = [
+    "full",
+    "vex-sdk-jumptable",
+    "vex-sdk-mock",
+] }
+evian = { workspace = true }
+log = { workspace = true }
