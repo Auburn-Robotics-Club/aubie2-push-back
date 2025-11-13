@@ -17,3 +17,8 @@ vexide = { workspace = true, features = [
 ] }
 evian = { workspace = true }
 log = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(route, values("blue", "red"))',
+] }

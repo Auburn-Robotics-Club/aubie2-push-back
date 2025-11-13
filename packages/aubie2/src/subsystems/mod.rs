@@ -1,3 +1,1 @@
-mod intake;
-
-pub use intake::Intake;
+pub mod intake;

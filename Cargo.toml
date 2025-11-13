@@ -3,8 +3,8 @@ members = ["packages/*"]
 resolver = "2"
 
 [workspace.dependencies]
-vexide = { git = "https://github.com/vexide/vexide.git", branch = "refactor/upstreamed-target+rust-std" }
-evian = { git = "https://github.com/vexide/evian.git", branch = "refactor/vexide-0.8.0" }
+vexide = { path = "../vexide/packages/vexide" }
+evian = { path = "../evian/packages/evian" }
 aubie2 = { path = "packages/aubie2" }
 log = "0.4.28"
 
