@@ -1,5 +1,5 @@
 [package]
-name = "nemo"
+name = "solenoid-test"
 version = "0.1.0"
 edition = "2024"
 
@@ -15,6 +15,4 @@ vexide = { workspace = true, features = [
     "vex-sdk-jumptable",
     "vex-sdk-mock",
 ] }
-evian = { workspace = true }
 log = { workspace = true }
-futures = { version = "0.3.31", default-features = false, features = ["async-await"] }

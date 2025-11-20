@@ -17,8 +17,9 @@ vexide = { workspace = true, features = [
 ] }
 evian = { workspace = true }
 log = { workspace = true }
+futures = { version = "0.3.31", default-features = false, features = ["async-await"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(route, values("blue", "red"))',
+    'cfg(route, values("blue_left", "red_left", "red_left_rush"))',
 ] }

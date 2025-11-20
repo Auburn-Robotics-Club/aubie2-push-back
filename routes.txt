@@ -1,6 +1,9 @@
 NEMO:
 
+RUSTFLAGS="-Clink-arg=-Tvexide.ld --cfg route=\"red_rush\"" cargo v5 run --slot=3 --name="nemo-red-rush" -p nemo --release
+
 DORY:
 
 RUSTFLAGS="-Clink-arg=-Tvexide.ld --cfg route=\"red\"" cargo v5 run --slot=1 --name="dory-red" -p dory --release
 RUSTFLAGS="-Clink-arg=-Tvexide.ld --cfg route=\"blue\"" cargo v5 run --slot=2 --name="dory-blue" -p dory --release
+RUSTFLAGS="-Clink-arg=-Tvexide.ld --cfg route=\"red_rush\"" cargo v5 run --slot=3 --name="dory-red-rush" -p dory --release

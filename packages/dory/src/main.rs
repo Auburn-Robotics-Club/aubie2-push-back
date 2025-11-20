@@ -23,10 +23,11 @@ struct Robot {
     drivetrain: Drivetrain<Differential, WheeledTracking>,
     intake: Intake<4, 1>,
     snacky: AdiDigitalOut,
+    doohickey: AdiDigitalOut,
 }
 
 impl Robot {
-    // Measurements
+    // Measurements;
     pub const TRACK_WIDTH: f64 = 11.5;
     pub const WHEEL_DIAMETER: f64 = 2.75;
     pub const TRACKING_WHEEL_DIAMETER: f64 = 2.0;
@@ -34,14 +35,14 @@ impl Robot {
     pub const SIDEWAYS_TRACKING_WHEEL_OFFSET: f64 = -2.5;
 
     // Control Loops
-    pub const LINEAR_PID: Pid = Pid::new(0.2, 0.005, 0.01, Some(3.0));
+    pub const LINEAR_PID: Pid = Pid::new(0.1, 0.001, 0.01, Some(3.0));
     pub const LATERAL_PID: Pid = Pid::new(0.09, 0.001, 0.004, Some(2.0));
     pub const ANGUALR_PID: AngularPid =
         AngularPid::new(3.0, 0.1, 0.175, Some(Angle::from_degrees(5.0)));
 
     // Tolerances
     pub const LINEAR_TOLERANCES: Tolerances = Tolerances::new()
-        .error(5.0)
+        .error(1.0)
         .velocity(0.25)
         .duration(Duration::from_millis(15));
     pub const ANGULAR_TOLERANCES: Tolerances = Tolerances::new()
@@ -54,10 +55,12 @@ impl Compete for Robot {
     async fn autonomous(&mut self) {
         let start = Instant::now();
 
-        #[cfg(route = "red")]
-        self.red().await;
-        #[cfg(route = "blue")]
-        self.blue().await;
+        #[cfg(route = "red_safe")]
+        self.red_safe().await;
+        #[cfg(route = "blue_safe")]
+        self.blue_safe().await;
+        #[cfg(route = "red_rush")]
+        self.red_rush().await;
 
         info!("Route completed successfully in {:?}.", start.elapsed());
         info!(
@@ -68,7 +71,7 @@ impl Compete for Robot {
     }
 
     async fn driver(&mut self) {
-        self.intake.set_reject_color(Some(ElementColor::Blue));
+        self.intake.set_reject_color(Some(ElementColor::Red));
 
         loop {
             let state = self.controller.state().unwrap_or_default();
@@ -88,14 +91,8 @@ impl Compete for Robot {
             }
 
             // Grabber
-            if state.button_l2.is_pressed() {
-                if self.intake.grabber.is_low().unwrap_or_default() {
-                    _ = self.intake.grabber.set_high();
-                }
-            } else {
-                if self.intake.grabber.is_high().unwrap_or_default() {
-                    _ = self.intake.grabber.set_low();
-                }
+            if state.button_l2.is_now_pressed() {
+                _ = self.intake.grabber.toggle();
             }
 
             if state.button_l1.is_now_pressed() {
@@ -113,7 +110,7 @@ impl Compete for Robot {
             if state.button_a.is_now_pressed() {
                 let new_position = match (
                     self.intake.lift.is_high().unwrap_or_default(),
-                    self.intake.hood_position().unwrap_or_default(),
+                    self.intake.hood_position(),
                 ) {
                     (_, HoodPosition::High | HoodPosition::Half) => HoodPosition::Closed,
                     (true, HoodPosition::Closed) => HoodPosition::Half,
@@ -144,13 +141,12 @@ async fn main(peripherals: Peripherals) {
     let mut display = peripherals.display;
 
     let expander = AdiExpander::new(peripherals.port_3);
-    let forward_tracker_2 = Amt102V::new(expander.adi_e, expander.adi_f, Direction::Reverse);
     let forward_tracker = Amt102V::new(expander.adi_c, expander.adi_d, Direction::Reverse);
     let sideways_tracker = Amt102V::new(expander.adi_a, expander.adi_b, Direction::Forward);
 
     let mut imu = InertialSensor::new(peripherals.port_4);
 
-    // calibrate_imu(&mut controller, &mut display, &mut imu).await;
+    calibrate_imu(&mut controller, &mut display, &mut imu).await;
 
     let robot = Robot {
         controller,
@@ -174,12 +170,6 @@ async fn main(peripherals: Peripherals) {
                 90.0.deg(),
                 [TrackingWheel::new(
                     forward_tracker,
-                    Robot::TRACKING_WHEEL_DIAMETER,
-                    0.0,
-                    None,
-                ),
-                TrackingWheel::new(
-                    forward_tracker_2,
                     Robot::TRACKING_WHEEL_DIAMETER,
                     0.0,
                     None,
@@ -219,6 +209,7 @@ async fn main(peripherals: Peripherals) {
             OpticalSensor::new(peripherals.port_6),
         ),
         snacky: AdiDigitalOut::new(peripherals.adi_f),
+        doohickey: AdiDigitalOut::new(peripherals.adi_c),
     };
 
     // skills : c

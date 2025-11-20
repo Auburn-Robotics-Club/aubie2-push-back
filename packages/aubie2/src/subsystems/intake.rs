@@ -33,12 +33,13 @@ pub enum ElementColor {
 pub struct Intake<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> {
     _task: Task<()>,
     reject_color: Rc<RefCell<Option<ElementColor>>>,
-    bottom_motors: [Motor; BOTTOM_COUNT],
-    top_motors: [Motor; TOP_COUNT],
+    pub bottom_motors: [Motor; BOTTOM_COUNT],
+    pub top_motors: [Motor; TOP_COUNT],
     hood_high: AdiDigitalOut,
     hood_low: AdiDigitalOut,
     pub lift: AdiDigitalOut,
     pub grabber: AdiDigitalOut,
+    hood_position: HoodPosition,
 }
 
 impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP_COUNT> {
@@ -63,6 +64,7 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
             hood_high,
             hood_low,
             grabber,
+            hood_position: HoodPosition::Closed,
         }
     }
 
@@ -97,7 +99,7 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
                 {
                     let is_seeing_blue = (200.0..250.0).contains(&hue);
                     let is_seeing_red =
-                        (10.0..40.0).contains(&hue) || (338.0..360.0).contains(&hue);
+                        (0.0..20.0).contains(&hue) || (340.0..360.0).contains(&hue);
 
                     let (is_seeing_bad, is_seeing_good) = match reject_color {
                         ElementColor::Blue => (is_seeing_blue, is_seeing_red),
@@ -148,22 +150,18 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
             result = Err(error);
         }
 
+        self.hood_position = position;
+
         result
     }
 
-    pub fn hood_position(&self) -> Result<HoodPosition, PortError> {
-        Ok(
-            match (self.hood_high.is_high()?, self.hood_low.is_high()?) {
-                (true, true) | (true, false) => HoodPosition::High,
-                (false, true) => HoodPosition::Half,
-                (false, false) => HoodPosition::Closed,
-            },
-        )
+    pub fn hood_position(&self) -> HoodPosition {
+        self.hood_position
     }
 
     pub fn set_voltage(&mut self, voltage: f64) -> Result<(), PortError> {
         self.set_top_voltage(
-            if self.hood_position() == Ok(HoodPosition::Closed) && voltage.is_sign_positive() {
+            if self.hood_position() == HoodPosition::Closed && voltage.is_sign_positive() {
                 0.0
             } else {
                 voltage
