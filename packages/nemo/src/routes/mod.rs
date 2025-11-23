@@ -1,1 +1,1 @@
-pub mod red_rush;
+pub mod rush;

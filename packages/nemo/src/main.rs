@@ -3,10 +3,19 @@ use std::time::{Duration, Instant};
 use aubie2::{
     hardware::{calibration::calibrate_imu, encoder::Amt102V},
     logger::RobotLogger,
-    subsystems::intake::{ElementColor, HoodPosition, Intake},
+    subsystems::intake::{ElementColor, HoodPosition, Intake, IntakeStage},
     theme::THEME_WAR_EAGLE,
 };
-use evian::{control::loops::{AngularPid, Pid}, drivetrain::model::Differential, math::Angle, prelude::*, tracking::wheeled::{TrackingWheel, WheeledTracking}};
+use evian::{
+    control::loops::{AngularPid, Pid},
+    drivetrain::model::Differential,
+    math::Angle,
+    prelude::*,
+    tracking::{
+        shared_motors,
+        wheeled::{TrackingWheel, WheeledTracking},
+    },
+};
 use log::{LevelFilter, info};
 use vexide::prelude::*;
 
@@ -15,13 +24,13 @@ pub mod routes;
 struct Robot {
     controller: Controller,
     drivetrain: Drivetrain<Differential, WheeledTracking>,
-    intake: Intake<4, 1>,
+    intake: Intake<2, 1, 1, 1>,
     snacky: AdiDigitalOut,
     doohickey: AdiDigitalOut,
 }
 
 impl Robot {
-    // Measurements;
+    // Measurements
     pub const TRACK_WIDTH: f64 = 11.5;
     pub const WHEEL_DIAMETER: f64 = 2.75;
     pub const TRACKING_WHEEL_DIAMETER: f64 = 2.0;
@@ -43,18 +52,19 @@ impl Robot {
         .error(f64::to_radians(8.0))
         .velocity(0.05)
         .duration(Duration::from_millis(15));
+
+    // Intake
+    #[cfg(color = "red")]
+    pub const REJECT_COLOR: ElementColor = ElementColor::Blue;
+    #[cfg(not(color = "red"))]
+    pub const REJECT_COLOR: ElementColor = ElementColor::Red;
 }
 
 impl Compete for Robot {
     async fn autonomous(&mut self) {
         let start = Instant::now();
 
-        #[cfg(route = "red_safe")]
-        self.red_safe().await;
-        #[cfg(route = "blue_safe")]
-        self.blue_safe().await;
-        #[cfg(route = "red_rush")]
-        self.red_rush().await;
+        self.rush().await;
 
         info!("Route completed successfully in {:?}.", start.elapsed());
         info!(
@@ -65,10 +75,11 @@ impl Compete for Robot {
     }
 
     async fn driver(&mut self) {
+        self.intake.set_reject_color(Some(Robot::REJECT_COLOR));
+
         loop {
             let state = self.controller.state().unwrap_or_default();
 
-            println!("{}", self.drivetrain.tracking.position());
             _ = self
                 .drivetrain
                 .model
@@ -76,31 +87,59 @@ impl Compete for Robot {
 
             // Intake controls
             if state.button_b.is_pressed() {
-                _ = self.intake.set_voltage(12.0);
+                if self.intake.hood_position() == HoodPosition::Closed {
+                    _ = self
+                        .intake
+                        .set_voltage(IntakeStage::all() ^ IntakeStage::FRONT_TOP, 12.0);
+                    _ = self.intake.set_voltage(IntakeStage::FRONT_TOP, 0.0);
+                } else {
+                    _ = self.intake.set_voltage(IntakeStage::all(), 12.0);
+                }
             } else if state.button_down.is_pressed() {
-                _ = self.intake.set_voltage(-12.0 * 0.7);
+                _ = self.intake.set_voltage(IntakeStage::all(), -12.0 * 0.8);
             } else {
-                _ = self.intake.set_voltage(0.0);
+                _ = self.intake.set_voltage(IntakeStage::all(), 0.0);
             }
 
             if state.button_r2.is_now_pressed() {
                 _ = self.snacky.toggle();
             }
 
-            if state.button_y.is_pressed() {
-                _ = self.intake.top_motors[0].set_voltage(12.0);
-                _ = self.intake.bottom_motors[3].set_voltage(12.0);
+            if state.button_l1.is_now_pressed() {
+                match self.intake.reject_color() {
+                    Some(_) => {
+                        self.intake.set_reject_color(None);
+                        _ = self.controller.rumble(".").await;
+                    }
+                    None => {
+                        self.intake.set_reject_color(Some(Self::REJECT_COLOR));
+                        _ = self.controller.rumble("..").await;
+                    }
+                }
+            }
+
+            if state.button_y.is_pressed() && self.intake.hood_position() != HoodPosition::Closed {
+                _ = self
+                    .intake
+                    .set_voltage(IntakeStage::BACK_TOP | IntakeStage::FRONT_TOP, 12.0);
             }
 
             if state.button_right.is_pressed() {
-                _ = self.intake.bottom_motors[0].set_voltage(-12.0 * 0.7);
-                _ = self.intake.bottom_motors[1].set_voltage(-12.0 * 0.7);
-                _ = self.intake.bottom_motors[2].set_voltage(-12.0 * 0.7);
+                _ = self.intake.set_voltage(
+                    IntakeStage::FRONT_BOTTOM | IntakeStage::BACK_BOTTOM,
+                    -12.0 * 0.8,
+                );
             }
 
             // Grabber
             if state.button_r1.is_now_pressed() {
                 _ = self.intake.grabber.toggle();
+            }
+
+            if state.button_x.is_pressed() {
+                _ = self.intake.set_emergency_override(true);
+            } else {
+                _ = self.intake.set_emergency_override(false);
             }
 
             if state.right_stick.y() > 0.70 {
@@ -109,7 +148,7 @@ impl Compete for Robot {
                 if self.intake.hood_position() == HoodPosition::Half {
                     _ = self.intake.set_hood_position(HoodPosition::High);
                 }
-             } else if state.right_stick.y() < -0.70 {
+            } else if state.right_stick.y() < -0.70 {
                 _ = self.intake.lift.set_high();
 
                 if self.intake.hood_position() == HoodPosition::High {
@@ -150,56 +189,52 @@ async fn main(peripherals: Peripherals) {
     let mut controller = peripherals.primary_controller;
     let mut display = peripherals.display;
 
-    let expander = AdiExpander::new(peripherals.port_7);
-    let forward_tracker = Amt102V::new(expander.adi_c, expander.adi_d, Direction::Reverse);
-    let sideways_tracker = Amt102V::new(expander.adi_a, expander.adi_b, Direction::Forward);
-
     let mut imu = InertialSensor::new(peripherals.port_9);
 
     calibrate_imu(&mut controller, &mut display, &mut imu).await;
 
+    let l = shared_motors![
+        Motor::new(peripherals.port_20, Gearset::Blue, Direction::Reverse),
+        Motor::new(peripherals.port_19, Gearset::Blue, Direction::Forward),
+        Motor::new(peripherals.port_18, Gearset::Blue, Direction::Reverse),
+        Motor::new(peripherals.port_17, Gearset::Blue, Direction::Forward),
+    ];
+    let r = shared_motors![
+        Motor::new(peripherals.port_14, Gearset::Blue, Direction::Forward),
+        Motor::new(peripherals.port_13, Gearset::Blue, Direction::Reverse),
+        Motor::new(peripherals.port_12, Gearset::Blue, Direction::Forward),
+        Motor::new(peripherals.port_11, Gearset::Blue, Direction::Reverse),
+    ];
+
     let robot = Robot {
         controller,
         drivetrain: Drivetrain::new(
-            Differential::new(
-                [
-                    Motor::new(peripherals.port_20, Gearset::Blue, Direction::Reverse),
-                    Motor::new(peripherals.port_19, Gearset::Blue, Direction::Forward),
-                    Motor::new(peripherals.port_18, Gearset::Blue, Direction::Reverse),
-                    Motor::new(peripherals.port_17, Gearset::Blue, Direction::Forward),
-                ],
-                [
-                    Motor::new(peripherals.port_14, Gearset::Blue, Direction::Forward),
-                    Motor::new(peripherals.port_13, Gearset::Blue, Direction::Reverse),
-                    Motor::new(peripherals.port_12, Gearset::Blue, Direction::Forward),
-                    Motor::new(peripherals.port_11, Gearset::Blue, Direction::Reverse),
-                ],
-            ),
-            WheeledTracking::new(
+            Differential::from_shared(l.clone(), r.clone()),
+            WheeledTracking::forward_only(
                 (0.0, 0.0),
                 90.0.deg(),
-                [TrackingWheel::new(
-                    forward_tracker,
-                    Robot::TRACKING_WHEEL_DIAMETER,
-                    0.0,
-                    None,
-                )],
-                [TrackingWheel::new(
-                    sideways_tracker,
-                    Robot::TRACKING_WHEEL_DIAMETER,
-                    Robot::SIDEWAYS_TRACKING_WHEEL_OFFSET,
-                    None,
-                )],
+                [
+                    TrackingWheel::new(l, 2.75, 0.0, None),
+                    TrackingWheel::new(r, 2.75, 0.0, None),
+                ],
                 Some(imu),
             ),
         ),
         intake: Intake::new(
             [
-                Motor::new(peripherals.port_2, Gearset::Blue, Direction::Forward),
                 Motor::new(peripherals.port_1, Gearset::Blue, Direction::Reverse),
-                Motor::new(peripherals.port_16, Gearset::Blue, Direction::Reverse),
-                Motor::new(peripherals.port_15, Gearset::Blue, Direction::Forward),
+                Motor::new(peripherals.port_2, Gearset::Blue, Direction::Forward),
             ],
+            [Motor::new(
+                peripherals.port_16,
+                Gearset::Blue,
+                Direction::Reverse,
+            )],
+            [Motor::new(
+                peripherals.port_15,
+                Gearset::Blue,
+                Direction::Forward,
+            )],
             [Motor::new(
                 peripherals.port_10,
                 Gearset::Blue,

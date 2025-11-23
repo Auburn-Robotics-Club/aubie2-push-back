@@ -21,5 +21,5 @@ futures = { version = "0.3.31", default-features = false, features = ["async-awa
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(route, values("blue_left", "red_left", "red_left_rush"))',
+    'cfg(route, values("blue", "red"))',
 ] }

@@ -30,11 +30,31 @@ pub enum ElementColor {
     Red,
 }
 
-pub struct Intake<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> {
+bitflags::bitflags! {
+    /// Intake stages for controlling different parts of the intake separately
+    pub struct IntakeStage: u8 {
+        const FRONT_BOTTOM = 1 << 0;
+        const BACK_BOTTOM = 1 << 1;
+        const BACK_TOP = 1 << 2;
+        const FRONT_TOP = 1 << 3;
+    }
+}
+
+pub struct Intake<
+    const FRONT_BOTTOM_COUNT: usize,
+    const BACK_BOTTOM_COUNT: usize,
+    const BACK_TOP_COUNT: usize,
+    const FRONT_TOP_COUNT: usize,
+> {
     _task: Task<()>,
     reject_color: Rc<RefCell<Option<ElementColor>>>,
-    pub bottom_motors: [Motor; BOTTOM_COUNT],
-    pub top_motors: [Motor; TOP_COUNT],
+    emergency_override: Rc<RefCell<bool>>,
+
+    pub front_bottom_motors: [Motor; FRONT_BOTTOM_COUNT],
+    pub back_bottom_motors: [Motor; BACK_BOTTOM_COUNT],
+    pub back_top_motors: [Motor; BACK_TOP_COUNT],
+    pub front_top_motors: [Motor; FRONT_TOP_COUNT],
+
     hood_high: AdiDigitalOut,
     hood_low: AdiDigitalOut,
     pub lift: AdiDigitalOut,
@@ -42,10 +62,15 @@ pub struct Intake<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> {
     hood_position: HoodPosition,
 }
 
-impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP_COUNT> {
+impl<    const FRONT_BOTTOM_COUNT: usize,
+const BACK_BOTTOM_COUNT: usize,
+const BACK_TOP_COUNT: usize,
+const FRONT_TOP_COUNT: usize,> Intake<FRONT_BOTTOM_COUNT, BACK_BOTTOM_COUNT, BACK_TOP_COUNT, FRONT_TOP_COUNT> {
     pub fn new(
-        bottom_motors: [Motor; BOTTOM_COUNT],
-        top_motors: [Motor; TOP_COUNT],
+        front_bottom_motors: [Motor; FRONT_BOTTOM_COUNT],
+        back_bottom_motors: [Motor; BACK_BOTTOM_COUNT],
+        back_top_motors: [Motor; BACK_TOP_COUNT],
+        front_top_motors: [Motor; FRONT_TOP_COUNT],
         grabber: AdiDigitalOut,
         ejector: AdiDigitalOut,
         lift: AdiDigitalOut,
@@ -54,16 +79,20 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
         optical: OpticalSensor,
     ) -> Self {
         let reject_color = Rc::new(RefCell::new(None));
+        let emergency_override = Rc::new(RefCell::new(false));
 
         Self {
-            _task: spawn(Self::task(optical, reject_color.clone(), ejector)),
+            _task: spawn(Self::task(optical, reject_color.clone(), emergency_override.clone(), ejector)),
             reject_color,
-            bottom_motors,
-            top_motors,
+            front_bottom_motors,
+            back_bottom_motors,
+            back_top_motors,
+            front_top_motors,
             lift,
             hood_high,
             hood_low,
             grabber,
+            emergency_override,
             hood_position: HoodPosition::Closed,
         }
     }
@@ -71,6 +100,7 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
     async fn task(
         mut optical: OpticalSensor,
         reject_color: Rc<RefCell<Option<ElementColor>>>,
+        emergency_override: Rc<RefCell<bool>>,
         mut ejector: AdiDigitalOut,
     ) {
         _ = optical.set_integration_time(Duration::from_millis(2));
@@ -98,8 +128,7 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
                     && in_prox
                 {
                     let is_seeing_blue = (200.0..250.0).contains(&hue);
-                    let is_seeing_red =
-                        (0.0..20.0).contains(&hue) || (340.0..360.0).contains(&hue);
+                    let is_seeing_red = (0.0..20.0).contains(&hue) || (340.0..360.0).contains(&hue);
 
                     let (is_seeing_bad, is_seeing_good) = match reject_color {
                         ElementColor::Blue => (is_seeing_blue, is_seeing_red),
@@ -118,12 +147,22 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
                 }
             }
 
-            if rejecting {
-                if reject_timestamp.elapsed() < Duration::from_millis(1000) {
+            if *emergency_override.borrow() {
+                if ejector.is_low().unwrap_or_default() {
                     _ = ejector.set_high();
+                }
+            } else {
+                if rejecting {
+                    if reject_timestamp.elapsed() < Duration::from_millis(1000) {
+                        _ = ejector.set_high();
+                    } else {
+                        rejecting = false;
+                        _ = ejector.set_low();
+                    }
                 } else {
-                    rejecting = false;
-                    _ = ejector.set_low();
+                    if ejector.is_high().unwrap_or_default() {
+                        _ = ejector.set_low();
+                    }
                 }
             }
 
@@ -133,6 +172,14 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
 
     pub fn set_reject_color(&mut self, reject_color: Option<ElementColor>) {
         *self.reject_color.borrow_mut() = reject_color;
+    }
+
+    pub fn reject_color(&self) -> Option<ElementColor> {
+        *self.reject_color.borrow()
+    }
+
+    pub fn set_emergency_override(&mut self, ov: bool) {
+        *self.emergency_override.borrow_mut() = ov;
     }
 
     pub fn set_hood_position(&mut self, position: HoodPosition) -> Result<(), PortError> {
@@ -159,41 +206,46 @@ impl<const BOTTOM_COUNT: usize, const TOP_COUNT: usize> Intake<BOTTOM_COUNT, TOP
         self.hood_position
     }
 
-    pub fn set_voltage(&mut self, voltage: f64) -> Result<(), PortError> {
-        self.set_top_voltage(
-            if self.hood_position() == HoodPosition::Closed && voltage.is_sign_positive() {
-                0.0
-            } else {
-                voltage
-            },
-        )?;
-        self.set_bottom_voltage(voltage)?;
-
-        Ok(())
-    }
-
-    pub fn set_bottom_voltage(&mut self, voltage: f64) -> Result<(), PortError> {
+    pub fn set_voltage(&mut self, stage: IntakeStage, voltage: f64) -> Result<(), PortError> {
         let mut rtn = Ok(());
 
-        for motor in self.bottom_motors.iter_mut() {
-            let result = motor.set_voltage(voltage * motor.max_voltage());
+        if stage.contains(IntakeStage::FRONT_BOTTOM) {
+            for motor in self.front_bottom_motors.iter_mut() {
+                let result = motor.set_voltage(voltage);
 
-            if result.is_err() {
-                rtn = result;
+                if result.is_err() {
+                    rtn = result;
+                }
             }
         }
 
-        rtn
-    }
+        if stage.contains(IntakeStage::FRONT_TOP) {
+            for motor in self.front_top_motors.iter_mut() {
+                let result = motor.set_voltage(voltage);
 
-    pub fn set_top_voltage(&mut self, voltage: f64) -> Result<(), PortError> {
-        let mut rtn = Ok(());
+                if result.is_err() {
+                    rtn = result;
+                }
+            }
+        }
 
-        for motor in self.top_motors.iter_mut() {
-            let result = motor.set_voltage(voltage * motor.max_voltage());
+        if stage.contains(IntakeStage::BACK_BOTTOM) {
+            for motor in self.back_bottom_motors.iter_mut() {
+                let result = motor.set_voltage(voltage);
 
-            if result.is_err() {
-                rtn = result;
+                if result.is_err() {
+                    rtn = result;
+                }
+            }
+        }
+
+        if stage.contains(IntakeStage::BACK_TOP) {
+            for motor in self.back_top_motors.iter_mut() {
+                let result = motor.set_voltage(voltage);
+
+                if result.is_err() {
+                    rtn = result;
+                }
             }
         }
 

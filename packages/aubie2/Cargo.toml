@@ -7,3 +7,5 @@ edition = "2024"
 vexide = { workspace = true }
 evian = { workspace = true }
 log = { workspace = true }
+bitflags = "2.10.0"
+vex-sdk = "0.28.0"
