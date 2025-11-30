@@ -10,11 +10,7 @@ icon = "cool-x"
 
 [dependencies]
 aubie2 = { workspace = true }
-vexide = { workspace = true, features = [
-    "full",
-    "vex-sdk-jumptable",
-    "vex-sdk-mock",
-] }
+vexide = { workspace = true, features = ["full", "default-sdk"] }
 evian = { workspace = true }
 log = { workspace = true }
 futures = { version = "0.3.31", default-features = false, features = ["async-await"] }
