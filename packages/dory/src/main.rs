@@ -1,9 +1,8 @@
 use std::time::{Duration, Instant};
 
 use aubie2::{
-    hardware::{calibration::calibrate_imu, encoder::Amt102V},
+    hardware::calibration::calibrate_imu,
     logger::RobotLogger,
-    subsystems::intake::{ElementColor, HoodPosition, Intake, IntakeStage},
     theme::THEME_WAR_EAGLE,
 };
 use evian::{
@@ -24,9 +23,14 @@ pub mod routes;
 struct Robot {
     controller: Controller,
     drivetrain: Drivetrain<Differential, WheeledTracking>,
-    intake: Intake<2, 1, 1, 1>,
+    intake_bottom: Motor,
+    intake_conveyor: Motor,
+    intake_hood: Motor,
+    intake_score: Motor,
+    hood: AdiDigitalOut,
     snacky: AdiDigitalOut,
-    doohickey: AdiDigitalOut,
+    trapdoor: AdiDigitalOut,
+    matchloader: AdiDigitalOut,
 }
 
 impl Robot {
@@ -52,23 +56,12 @@ impl Robot {
         .error(f64::to_radians(8.0))
         .velocity(0.05)
         .duration(Duration::from_millis(15));
-
-    #[cfg(color = "red")]
-    pub const REJECT_COLOR: ElementColor = ElementColor::Blue;
-    #[cfg(not(color = "red"))]
-    pub const REJECT_COLOR: ElementColor = ElementColor::Red;
 }
 
 impl Compete for Robot {
     async fn autonomous(&mut self) {
         let start = Instant::now();
 
-        // #[cfg(route = "red_safe")]
-        // self.red_safe().await;
-        // #[cfg(route = "blue_safe")]
-        // self.blue_safe().await;
-        // #[cfg(route = "red_rush")]
-        // self.rush().await;
         self.safe().await;
 
         info!("Route completed successfully in {:?}.", start.elapsed());
@@ -80,8 +73,8 @@ impl Compete for Robot {
     }
 
     async fn driver(&mut self) {
-        self.intake.set_reject_color(Some(Robot::REJECT_COLOR));
-
+        _ = self.hood.set_high();
+        
         loop {
             let state = self.controller.state().unwrap_or_default();
 
@@ -92,86 +85,48 @@ impl Compete for Robot {
 
             // Intake controls
             if state.button_r1.is_pressed() {
-                if self.intake.hood_position() == HoodPosition::Closed {
-                    _ = self.intake.set_voltage(
-                        IntakeStage::all() ^ IntakeStage::FRONT_TOP,
-                        12.0,
-                    );
-                    _ = self.intake.set_voltage(
-                        IntakeStage::FRONT_TOP,
-                        0.0,
-                    );
+                _ = self.intake_bottom.set_voltage(12.0);
+                _ = self.intake_conveyor.set_voltage(12.0);
+
+                if state.button_a.is_pressed() {
+                    _ = self.intake_hood.set_voltage(12.0);
+                    _ = self.intake_score.set_voltage(12.0);
+                } else if state.button_b.is_pressed() {
+                    _ = self.intake_hood.set_voltage(12.0);
+                    _ = self.intake_score.set_voltage(-6.0);
                 } else {
-                    _ = self.intake.set_voltage(
-                        IntakeStage::all(),
-                        12.0,
-                    );
+                    _ = self.intake_hood.set_voltage(-2.0);
                 }
             } else if state.button_r2.is_pressed() {
-                _ = self.intake.set_voltage(IntakeStage::all(), -12.0);
+                _ = self.intake_bottom.set_voltage(-12.0);
+                _ = self.intake_conveyor.set_voltage(-12.0);
+                _ = self.intake_hood.set_voltage(-12.0);
+                _ = self.intake_score.set_voltage(-12.0);
             } else {
-                _ = self.intake.set_voltage(IntakeStage::all(), 0.0);
+                _ = self.intake_bottom.set_voltage(0.0);
+                _ = self.intake_conveyor.set_voltage(0.0);
+                _ = self.intake_hood.set_voltage(0.0);
+                _ = self.intake_score.set_voltage(0.0);
             }
 
-            if state.button_up.is_now_pressed() {
-                _ = self.doohickey.toggle();
+            if state.button_b.is_now_pressed() {
+                _ = self.trapdoor.set_high();
             }
 
-            // Grabber
-            if state.button_l2.is_now_pressed() {
-                _ = self.intake.grabber.toggle();
-            }
-
-            if state.button_l1.is_now_pressed() {
-                _ = self.intake.lift.toggle();
-            }
-
-            if state.button_right.is_now_pressed() {
-                _ = self.intake.set_hood_position(HoodPosition::High);
-            }
-            
-            if state.button_down.is_pressed() {
-                _ = self.intake.set_emergency_override(true);
-            } else {
-                _ = self.intake.set_emergency_override(false);
-            }
-
-            if state.button_y.is_now_pressed() {
-                match self.intake.reject_color() {
-                    Some(_) => {
-                        self.intake.set_reject_color(None);
-                        _ = self.controller.rumble(".").await;
-                    }
-                    None => {
-                        self.intake.set_reject_color(Some(Self::REJECT_COLOR));
-                        _ = self.controller.rumble("..").await;
-                    }
-                }
+            if state.button_b.is_now_released() {
+                _ = self.trapdoor.set_low();
             }
 
             if state.button_x.is_now_pressed() {
                 _ = self.snacky.toggle();
             }
 
-            if state.button_a.is_now_pressed() {
-                let new_position = match (
-                    self.intake.lift.is_high().unwrap_or_default(),
-                    self.intake.hood_position(),
-                ) {
-                    (_, HoodPosition::High | HoodPosition::Half) => HoodPosition::Closed,
-                    (true, HoodPosition::Closed) => HoodPosition::Half,
-                    (false, HoodPosition::Closed) => HoodPosition::High,
-                };
+            if state.button_l1.is_now_pressed() {
+                _ = self.matchloader.toggle();
+            }
 
-                _ = self.intake.set_hood_position(new_position);
-
-                _ = self
-                    .controller
-                    .rumble(if new_position == HoodPosition::Closed {
-                        "."
-                    } else {
-                        ".."
-                    })
+            if state.button_l2.is_now_pressed() {
+                _ = self.hood.toggle();
             }
 
             sleep(Motor::WRITE_INTERVAL).await;
@@ -186,21 +141,21 @@ async fn main(peripherals: Peripherals) {
     let mut controller = peripherals.primary_controller;
     let mut display = peripherals.display;
 
-    let mut imu = InertialSensor::new(peripherals.port_4);
+    let mut imu = InertialSensor::new(peripherals.port_13);
 
     calibrate_imu(&mut controller, &mut display, &mut imu).await;
 
     let left_motors = shared_motors![
-        Motor::new(peripherals.port_17, Gearset::Blue, Direction::Forward),
-        Motor::new(peripherals.port_18, Gearset::Blue, Direction::Reverse),
-        Motor::new(peripherals.port_19, Gearset::Blue, Direction::Forward),
-        Motor::new(peripherals.port_11, Gearset::Blue, Direction::Reverse),
+        Motor::new(peripherals.port_1, Gearset::Blue, Direction::Forward),
+        Motor::new(peripherals.port_2, Gearset::Blue, Direction::Reverse),
+        Motor::new(peripherals.port_3, Gearset::Blue, Direction::Reverse),
+        Motor::new(peripherals.port_4, Gearset::Blue, Direction::Forward),
     ];
     let right_motors = shared_motors![
-        Motor::new(peripherals.port_20, Gearset::Blue, Direction::Reverse),
-        Motor::new(peripherals.port_12, Gearset::Blue, Direction::Forward),
-        Motor::new(peripherals.port_13, Gearset::Blue, Direction::Reverse),
-        Motor::new(peripherals.port_14, Gearset::Blue, Direction::Forward),
+        Motor::new(peripherals.port_5, Gearset::Blue, Direction::Forward),
+        Motor::new(peripherals.port_6, Gearset::Blue, Direction::Reverse),
+        Motor::new(peripherals.port_7, Gearset::Blue, Direction::Forward),
+        Motor::new(peripherals.port_8, Gearset::Blue, Direction::Reverse),
     ];
 
     let robot = Robot {
@@ -217,38 +172,14 @@ async fn main(peripherals: Peripherals) {
                 Some(imu),
             ),
         ),
-        intake: Intake::new(
-            [
-                Motor::new(peripherals.port_9, Gearset::Blue, Direction::Reverse),
-                Motor::new(peripherals.port_10, Gearset::Blue, Direction::Forward),
-            ],
-            [
-                Motor::new(peripherals.port_16, Gearset::Blue, Direction::Reverse),
-            ],
-            [
-                Motor::new(peripherals.port_8, Gearset::Blue, Direction::Forward),
-
-            ],
-            [Motor::new(
-                peripherals.port_15,
-                Gearset::Blue,
-                Direction::Reverse,
-            )],
-            // Grabber
-            AdiDigitalOut::new(peripherals.adi_a),
-            // Ejector
-            AdiDigitalOut::new(peripherals.adi_g),
-            // Lift
-            AdiDigitalOut::new(peripherals.adi_d),
-            // Hood low
-            AdiDigitalOut::new(peripherals.adi_e),
-            // Hood high
-            AdiDigitalOut::new(peripherals.adi_b),
-            // Color sorter
-            OpticalSensor::new(peripherals.port_6),
-        ),
-        snacky: AdiDigitalOut::new(peripherals.adi_f),
-        doohickey: AdiDigitalOut::new(peripherals.adi_c),
+        intake_bottom: Motor::new(peripherals.port_9, Gearset::Blue, Direction::Reverse),
+        intake_conveyor: Motor::new(peripherals.port_20, Gearset::Blue, Direction::Forward),
+        intake_hood: Motor::new(peripherals.port_10, Gearset::Blue, Direction::Forward),
+        intake_score: Motor::new(peripherals.port_11, Gearset::Blue, Direction::Reverse),
+        hood: AdiDigitalOut::new(peripherals.adi_a),
+        snacky: AdiDigitalOut::new(peripherals.adi_b),
+        trapdoor: AdiDigitalOut::new(peripherals.adi_d),
+        matchloader: AdiDigitalOut::new(peripherals.adi_g),
     };
 
     // skills : c
