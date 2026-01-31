@@ -13,11 +13,8 @@ use vexide::time::sleep;
 
 use crate::Dory;
 
-pub mod aura;
-pub mod skills;
-
 impl Dory {
-    pub async fn safe(&mut self) {
+    pub async fn aura(&mut self) {
         let dt = &mut self.drivetrain;
         let mut basic = Basic {
             linear_controller: Dory::LINEAR_PID,
@@ -40,13 +37,15 @@ impl Dory {
 
         // drive to goal
         basic
-            .drive_distance_at_heading(dt, -34.0, 270.0.deg())
+            .drive_distance_at_heading(dt, -30.0, 270.0.deg())
+            .with_linear_error_tolerance(20.0)
+            .with_angular_output_limit(0.75)
+            .without_angular_tolerance_duration()
+            .without_linear_tolerance_duration()
             .await;
-        basic.turn_to_heading(dt, 225.0.deg()).await;
-
         basic
-            .drive_distance_at_heading(dt, -12.0, 225.0.deg())
-            .with_timeout(Duration::from_millis(1000))
+            .drive_distance_at_heading(dt, -29.0, 225.0.deg())
+            .with_timeout(Duration::from_secs(1))
             .await;
         _ = self.hood.set_high(); // deploy
         sleep(Duration::from_millis(50)).await;
@@ -56,7 +55,7 @@ impl Dory {
 
         // drive back
         println!("{}", dt.tracking.position());
-        basic.drive_distance_at_heading(dt, 55.0, 225.0.deg()).await;
+        basic.drive_distance_at_heading(dt, 54.0, 225.0.deg()).await;
         basic.turn_to_heading(dt, 270.0.deg()).await;
 
         // Reset
@@ -65,7 +64,6 @@ impl Dory {
             .with_linear_output_limit(0.5)
             .with_timeout(Duration::from_millis(1000))
             .await;
-        sleep(Duration::from_millis(500)).await; // ensure we're fully settled
         dt.tracking.set_position((0.0, 0.0));
 
         // Matchloader
@@ -75,51 +73,23 @@ impl Dory {
         _ = self.intake_score.set_voltage(0.0);
         _ = self.intake_hood.set_voltage(-2.0);
         basic
-            .drive_distance_at_heading(dt, 100.0, 270.0.deg())
-            .with_timeout(Duration::from_millis(1650))
+            .drive_distance_at_heading(dt, 100.0, 272.0.deg())
+            .with_timeout(Duration::from_millis(1800))
             .with_linear_output_limit(0.35)
             .await;
 
         // Score
         basic
-            .drive_distance_at_heading(dt, -100.0, 270.0.deg())
+            .drive_distance_at_heading(dt, -100.0, 272.0.deg())
             .with_linear_output_limit(0.5)
-            .with_timeout(Duration::from_millis(1500))
+            .with_timeout(Duration::from_millis(1250))
             .await;
         _ = self.intake_score.set_voltage(12.0);
         _ = self.intake_hood.set_voltage(12.0);
         dt.tracking.set_position((0.0, 0.0)); // odom reset
-        sleep(Duration::from_secs(2)).await;
+        sleep(Duration::from_secs(1)).await;
 
-        // Matchloader
-        join(
-            async {
-                basic
-                    .drive_distance_at_heading(dt, 100.0, 270.0.deg())
-                    .with_timeout(Duration::from_millis(6000))
-                    .with_linear_output_limit(0.3)
-                    .await;
-            },
-            async {
-                sleep(Duration::from_millis(3800)).await;
-                _ = self.intake_score.set_voltage(0.0);
-                _ = self.intake_hood.set_voltage(-2.0);
-            },
-        )
-        .await;
-
-        // Score again
-        basic
-            .drive_distance_at_heading(dt, -100.0, 270.0.deg())
-            .with_linear_output_limit(0.5)
-            .with_timeout(Duration::from_millis(2000))
-            .await;
-        _ = self.intake_score.set_voltage(12.0);
-        _ = self.intake_hood.set_voltage(12.0);
-        dt.tracking.set_position((0.0, 0.0)); // odom reset
-        sleep(Duration::from_secs(2)).await;
-
-        //
+        // snacky
         _ = self.matchloader.set_low();
         _ = self.snacky.set_low();
         _ = self.intake_bottom.set_voltage(0.0);
@@ -139,21 +109,10 @@ impl Dory {
             .await;
         basic.turn_to_heading(dt, 90.0.deg()).await;
         basic
-            .drive_distance_at_heading(dt, 28.0, 90.0.deg())
-            .without_linear_tolerance_duration()
-            .without_angular_tolerance_duration()
-            .await;
-        _ = self.snacky.set_high();
-
-        // basic
-        //     .drive_distance_at_heading(dt, -44.0, 180.0.deg())
-        //     .await;
-        // println!("{}", dt.tracking.position());
-        seeking.move_to_point(dt, (48.0, 7.0)).await;
-        basic.turn_to_heading(dt, 270.0.deg()).await;
-        basic
-            .drive_distance_at_heading(dt, 100.0, 270.0.deg())
-            .with_timeout(Duration::from_millis(750))
+            .drive_distance_at_heading(dt, 38.0, 90.0.deg())
+            .without_timeout()
+            .with_linear_error_tolerance(0.0)
+            .without_linear_velocity_tolerance()
             .await;
     }
 }

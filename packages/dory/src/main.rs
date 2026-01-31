@@ -1,10 +1,6 @@
 use std::time::{Duration, Instant};
 
-use aubie2::{
-    hardware::calibration::calibrate_imu,
-    logger::RobotLogger,
-    theme::THEME_WAR_EAGLE,
-};
+use aubie2::{hardware::calibration::calibrate_imu, logger::RobotLogger, theme::THEME_WAR_EAGLE};
 use evian::{
     control::loops::{AngularPid, Pid},
     drivetrain::model::Differential,
@@ -20,7 +16,7 @@ use vexide::prelude::*;
 
 pub mod routes;
 
-struct Robot {
+struct Dory {
     controller: Controller,
     drivetrain: Drivetrain<Differential, WheeledTracking>,
     intake_bottom: Motor,
@@ -31,9 +27,10 @@ struct Robot {
     snacky: AdiDigitalOut,
     trapdoor: AdiDigitalOut,
     matchloader: AdiDigitalOut,
+    aligner: AdiDigitalOut,
 }
 
-impl Robot {
+impl Dory {
     // Measurements
     pub const TRACK_WIDTH: f64 = 11.5;
     pub const WHEEL_DIAMETER: f64 = 2.75;
@@ -58,7 +55,7 @@ impl Robot {
         .duration(Duration::from_millis(15));
 }
 
-impl Compete for Robot {
+impl Compete for Dory {
     async fn autonomous(&mut self) {
         let start = Instant::now();
 
@@ -74,7 +71,8 @@ impl Compete for Robot {
 
     async fn driver(&mut self) {
         _ = self.hood.set_high();
-        
+        _ = self.aligner.set_high();
+
         loop {
             let state = self.controller.state().unwrap_or_default();
 
@@ -121,12 +119,13 @@ impl Compete for Robot {
                 _ = self.snacky.toggle();
             }
 
-            if state.button_l1.is_now_pressed() {
+            if state.button_l2.is_now_pressed() {
                 _ = self.matchloader.toggle();
             }
 
-            if state.button_l2.is_now_pressed() {
+            if state.button_l1.is_now_pressed() {
                 _ = self.hood.toggle();
+                _ = self.aligner.toggle();
             }
 
             sleep(Motor::WRITE_INTERVAL).await;
@@ -158,7 +157,7 @@ async fn main(peripherals: Peripherals) {
         Motor::new(peripherals.port_8, Gearset::Blue, Direction::Reverse),
     ];
 
-    let robot = Robot {
+    let robot = Dory {
         controller,
         drivetrain: Drivetrain::new(
             Differential::from_shared(left_motors.clone(), right_motors.clone()),
@@ -180,6 +179,7 @@ async fn main(peripherals: Peripherals) {
         snacky: AdiDigitalOut::new(peripherals.adi_b),
         trapdoor: AdiDigitalOut::new(peripherals.adi_d),
         matchloader: AdiDigitalOut::new(peripherals.adi_g),
+        aligner: AdiDigitalOut::new(peripherals.adi_e),
     };
 
     // skills : c

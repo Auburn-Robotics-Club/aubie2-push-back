@@ -14,3 +14,4 @@ vexide = { workspace = true, features = ["full", "default-sdk"] }
 evian = { workspace = true }
 log = { workspace = true }
 futures = { version = "0.3.31", default-features = false, features = ["async-await"] }
+futures-lite = "2.6.1"

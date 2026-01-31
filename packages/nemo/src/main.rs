@@ -1,11 +1,6 @@
 use std::time::{Duration, Instant};
 
-use aubie2::{
-    hardware::{calibration::calibrate_imu, encoder::Amt102V},
-    logger::RobotLogger,
-    subsystems::intake::{ElementColor, HoodPosition, Intake, IntakeStage},
-    theme::THEME_WAR_EAGLE,
-};
+use aubie2::{hardware::calibration::calibrate_imu, logger::RobotLogger, theme::THEME_WAR_EAGLE};
 use evian::{
     control::loops::{AngularPid, Pid},
     drivetrain::model::Differential,
@@ -16,12 +11,14 @@ use evian::{
         wheeled::{TrackingWheel, WheeledTracking},
     },
 };
+use futures::{future::join, select_biased};
+use futures_lite::FutureExt;
 use log::{LevelFilter, info};
-use vexide::{prelude::*, smart::motor::BrakeMode};
+use vexide::{controller::ControllerId, prelude::*, smart::motor::BrakeMode};
 
 mod routes;
 
-struct Robot {
+struct Nemo {
     controller: Controller,
     drivetrain: Drivetrain<Differential, WheeledTracking>,
 
@@ -36,7 +33,7 @@ struct Robot {
     trapdoor: AdiDigitalOut,
 }
 
-impl Robot {
+impl Nemo {
     // Measurements
     pub const TRACK_WIDTH: f64 = 11.5;
     pub const WHEEL_DIAMETER: f64 = 3.25;
@@ -58,11 +55,11 @@ impl Robot {
         .duration(Duration::from_millis(15));
 }
 
-impl Compete for Robot {
+impl Compete for Nemo {
     async fn autonomous(&mut self) {
         let start = Instant::now();
 
-        self.aura().await;
+        self.skills().await;
 
         info!("Route completed successfully in {:?}.", start.elapsed());
         info!(
@@ -73,6 +70,22 @@ impl Compete for Robot {
     }
 
     async fn driver(&mut self) {
+        self.autonomous()
+            .or(async {
+                let controller = unsafe { Controller::new(ControllerId::Primary) };
+                loop {
+                    let state = controller.state().unwrap_or_default();
+
+                    if state.left_stick.y().abs() > 0.1 || state.right_stick.y().abs() > 0.1 {
+                        break;
+                    }
+
+                    sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await;
+
+        let mut trapdoor_timestamp = Instant::now();
         loop {
             let state = self.controller.state().unwrap_or_default();
 
@@ -83,10 +96,14 @@ impl Compete for Robot {
 
             if state.button_right.is_pressed() {
                 _ = self.intake_front.set_voltage(12.0);
-                _ = self.intake_middle.set_voltage(12.0);
+                if trapdoor_timestamp.elapsed() < Duration::from_millis(150) {
+                    _ = self.intake_middle.set_voltage(-12.0);
+                    _ = self.intake_hood.set_voltage(-12.0);
+                } else {
+                    _ = self.intake_middle.set_voltage(12.0);
+                    _ = self.intake_hood.brake(BrakeMode::Coast);
+                }
                 _ = self.intake_score.set_voltage(-12.0);
-                _ = self.intake_hood.brake(BrakeMode::Coast);
-                _ = self.trapdoor.set_high();
             } else if state.button_l2.is_pressed() {
                 _ = self.intake_front.set_voltage(12.0);
                 _ = self.intake_middle.set_voltage(12.0);
@@ -109,12 +126,17 @@ impl Compete for Robot {
                 _ = self.intake_score.brake(BrakeMode::Coast);
             }
 
+            if state.button_right.is_now_pressed() {
+                _ = self.trapdoor.set_high();
+                trapdoor_timestamp = Instant::now();
+            }
+
             if state.button_right.is_now_released() {
                 _ = self.trapdoor.set_low();
             }
 
             if state.button_r1.is_now_pressed() {
-                _ = self.snacky.toggle();  
+                _ = self.snacky.toggle();
             }
 
             if state.button_y.is_now_pressed() {
@@ -154,7 +176,7 @@ async fn main(peripherals: Peripherals) {
         Motor::new(peripherals.port_8, Gearset::Blue, Direction::Reverse),
     ];
 
-    let robot = Robot {
+    let robot = Nemo {
         controller,
         drivetrain: Drivetrain::new(
             Differential::from_shared(l.clone(), r.clone()),
@@ -162,8 +184,8 @@ async fn main(peripherals: Peripherals) {
                 (0.0, 0.0),
                 90.0.deg(),
                 [
-                    TrackingWheel::new(l, Robot::WHEEL_DIAMETER, 0.0, Some(36.0 / 48.0)),
-                    TrackingWheel::new(r, Robot::WHEEL_DIAMETER, 0.0, Some(36.0 / 48.0)),
+                    TrackingWheel::new(l, Nemo::WHEEL_DIAMETER, 0.0, Some(36.0 / 48.0)),
+                    TrackingWheel::new(r, Nemo::WHEEL_DIAMETER, 0.0, Some(36.0 / 48.0)),
                 ],
                 Some(imu),
             ),

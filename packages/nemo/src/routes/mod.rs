@@ -11,23 +11,24 @@ use evian::{
 use futures::future::join;
 use vexide::time::sleep;
 
-use crate::Robot;
+use crate::Nemo;
 
 mod aura;
+mod skills;
 
-impl Robot {
+impl Nemo {
     pub async fn safe(&mut self) {
         let dt = &mut self.drivetrain;
         let mut basic = Basic {
-            linear_controller: Robot::LINEAR_PID,
-            angular_controller: Robot::ANGUALR_PID,
-            linear_tolerances: Robot::LINEAR_TOLERANCES,
-            angular_tolerances: Robot::ANGULAR_TOLERANCES,
+            linear_controller: Nemo::LINEAR_PID,
+            angular_controller: Nemo::ANGUALR_PID,
+            linear_tolerances: Nemo::LINEAR_TOLERANCES,
+            angular_tolerances: Nemo::ANGULAR_TOLERANCES,
             timeout: Some(Duration::from_secs(5)),
         };
         let mut seeking = Seeking {
-            linear_controller: Robot::LINEAR_PID,
-            lateral_controller: Robot::LATERAL_PID,
+            linear_controller: Nemo::LINEAR_PID,
+            lateral_controller: Nemo::LATERAL_PID,
             tolerances: Tolerances::new()
                 .error(1.0)
                 .duration(Duration::from_millis(100)),
@@ -37,16 +38,16 @@ impl Robot {
         dt.tracking.set_heading(270.0.deg());
 
         // Descore from park zone
-        // failures: 0
         _ = self.descore.set_high();
-        sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(150)).await;
         basic
             .drive_distance_at_heading(dt, -10.0, 270.0.deg())
             .await;
         _ = self.descore.set_low();
+        sleep(Duration::from_millis(100)).await;
 
         // Go to matchloader
-        // failures: 0
+        _ = self.intake_front.set_voltage(-12.0);
         basic.turn_to_heading(dt, 0.0.deg()).await;
         seeking
             .move_to_point(dt, (50.0, 9.0))
@@ -56,7 +57,6 @@ impl Robot {
         basic.turn_to_heading(dt, 270.0.deg()).await;
 
         // Reset
-        // Failures: 0
         basic
             .drive_distance_at_heading(dt, -12.0, 270.0.deg())
             .with_linear_output_limit(0.5)
@@ -74,7 +74,7 @@ impl Robot {
         _ = self.intake_score.set_voltage(1.0);
         _ = self.intake_hood.set_voltage(-12.0);
         basic
-            .drive_distance_at_heading(dt, 100.0, 270.0.deg())
+            .drive_distance_at_heading(dt, 100.0, 268.0.deg())
             .with_timeout(Duration::from_secs(4))
             .with_linear_output_limit(0.3)
             .await;
@@ -89,14 +89,15 @@ impl Robot {
         join(
             async {
                 _ = self.intake_middle.set_voltage(-12.0);
-                sleep(Duration::from_millis(50)).await;
+                sleep(Duration::from_millis(100)).await;
                 _ = self.intake_middle.set_voltage(0.0);
             },
             async {
                 _ = self.intake_front.set_voltage(-12.0);
-                sleep(Duration::from_millis(750)).await;
-            }
-        ).await;
+                sleep(Duration::from_millis(650)).await;
+            },
+        )
+        .await;
 
         _ = self.intake_front.set_voltage(0.0);
 
@@ -127,8 +128,13 @@ impl Robot {
         _ = self.matchloader.set_low();
         basic.drive_distance_at_heading(dt, 12.0, 270.0.deg()).await;
         basic.turn_to_heading(dt, 180.0.deg()).await;
-        basic.drive_distance_at_heading(dt, 11.0, 180.0.deg()).await;
+        basic.drive_distance_at_heading(dt, 11.5, 180.0.deg()).await;
         basic.turn_to_heading(dt, 90.0.deg()).await;
-        basic.drive_distance_at_heading(dt, 32.0, 90.0.deg()).await;
+        basic
+            .drive_distance_at_heading(dt, 32.0, 90.0.deg())
+            .without_timeout()
+            .with_linear_error_tolerance(0.0)
+            .without_linear_velocity_tolerance()
+            .await;
     }
 }
