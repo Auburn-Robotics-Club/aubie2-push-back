@@ -59,7 +59,7 @@ impl Compete for Dory {
     async fn autonomous(&mut self) {
         let start = Instant::now();
 
-        self.safe().await;
+        self.aura().await;
 
         info!("Route completed successfully in {:?}.", start.elapsed());
         info!(

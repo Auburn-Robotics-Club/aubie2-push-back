@@ -69,14 +69,14 @@ impl Nemo {
             _ = self.intake_score.set_voltage(1.0);
             _ = self.intake_hood.set_voltage(-12.0);
             basic
-                .drive_distance_at_heading(dt, 100.0, 272.0.deg())
+                .drive_distance_at_heading(dt, 100.0, 270.0.deg())
                 .with_timeout(Duration::from_secs(4))
                 .with_linear_output_limit(0.4)
                 .await;
 
             // Score
             basic
-                .drive_distance_at_heading(dt, -100.0, 272.0.deg())
+                .drive_distance_at_heading(dt, -100.0, 270.0.deg())
                 .with_linear_output_limit(0.5)
                 .with_timeout(Duration::from_millis(1500))
                 .await;

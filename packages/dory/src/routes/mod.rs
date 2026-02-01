@@ -133,7 +133,7 @@ impl Dory {
             .await;
         basic.turn_to_heading(dt, 0.0.deg()).await;
         basic
-            .drive_distance_at_heading(dt, 12.5, 0.0.deg())
+            .drive_distance_at_heading(dt, 13.0, 0.0.deg())
             .without_linear_tolerance_duration()
             .without_angular_tolerance_duration()
             .await;
@@ -143,17 +143,13 @@ impl Dory {
             .without_linear_tolerance_duration()
             .without_angular_tolerance_duration()
             .await;
+        sleep(Duration::from_millis(500)).await;
         _ = self.snacky.set_high();
 
-        // basic
-        //     .drive_distance_at_heading(dt, -44.0, 180.0.deg())
-        //     .await;
-        // println!("{}", dt.tracking.position());
-        seeking.move_to_point(dt, (48.0, 7.0)).await;
-        basic.turn_to_heading(dt, 270.0.deg()).await;
         basic
-            .drive_distance_at_heading(dt, 100.0, 270.0.deg())
-            .with_timeout(Duration::from_millis(750))
+            .drive_distance_at_heading(dt, -48.0, 90.0.deg())
             .await;
+        basic.turn_to_heading(dt, -28.0.deg()).await;
+        basic.drive_distance_at_heading(dt, 44.0, 0.0.deg()).await;
     }
 }

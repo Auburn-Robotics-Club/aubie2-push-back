@@ -37,9 +37,9 @@ impl Dory {
 
         // drive to goal
         basic
-            .drive_distance_at_heading(dt, -30.0, 270.0.deg())
+            .drive_distance_at_heading(dt, -31.0, 270.0.deg())
             .with_linear_error_tolerance(20.0)
-            .with_angular_output_limit(0.75)
+            .with_angular_output_limit(0.65)
             .without_angular_tolerance_duration()
             .without_linear_tolerance_duration()
             .await;

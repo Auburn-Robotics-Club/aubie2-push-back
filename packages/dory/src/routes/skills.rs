@@ -55,10 +55,16 @@ impl Dory {
             .with_linear_output_limit(0.3)
             .await;
         sleep(Duration::from_secs(1)).await;
+        basic.drive_distance_at_heading(dt, -8.0, 272.0.deg()).await;
+        basic.drive_distance_at_heading(dt, 8.0, 272.0.deg()).await;
+        sleep(Duration::from_millis(1000)).await;
+        basic.drive_distance_at_heading(dt, -8.0, 268.0.deg()).await;
+        basic.drive_distance_at_heading(dt, 8.0, 268.0.deg()).await;
+        sleep(Duration::from_millis(1000)).await;
 
         // Score
         basic
-            .drive_distance_at_heading(dt, -100.0, 272.0.deg())
+            .drive_distance_at_heading(dt, -100.0, 269.5.deg())
             .with_linear_output_limit(0.5)
             .with_timeout(Duration::from_millis(3000))
             .await;

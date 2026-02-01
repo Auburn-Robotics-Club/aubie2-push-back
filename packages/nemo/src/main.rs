@@ -59,7 +59,7 @@ impl Compete for Nemo {
     async fn autonomous(&mut self) {
         let start = Instant::now();
 
-        self.skills().await;
+        self.safe().await;
 
         info!("Route completed successfully in {:?}.", start.elapsed());
         info!(
